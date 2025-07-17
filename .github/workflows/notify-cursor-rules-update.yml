@@ -3,43 +3,117 @@ name: Notify Cursor Rules Update
 on:
   push:
     branches: [main]
-  
   workflow_dispatch:
+
+env:
+  # 알림을 받을 타겟 리포지토리 목록 (공백으로 구분)
+  TARGET_REPOS: 'keo88/springboot-study'
 
 jobs:
   notify-repos:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Notify target repositories
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Collect rules files and notify
       run: |
-        # 알림을 받을 리포지토리 목록
-        REPOS=(
-          "your-org/project1"
-          "your-org/project2"
-          "your-org/project3"
-        )
+        echo "📁 Collecting rules files..."
+        
+        # JSON 구조 시작
+        echo '{' > payload.json
+        echo '  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",' >> payload.json
+        echo '  "commit": {' >> payload.json
+        echo '    "sha": "'${{ github.sha }}'",' >> payload.json
+        echo '    "message": "'$(echo "${{ github.event.head_commit.message }}" | sed 's/"/\\"/g' | tr '\n' ' ')'",' >> payload.json
+        echo '    "author": "'${{ github.event.head_commit.author.name }}'"' >> payload.json
+        echo '  },' >> payload.json
+        echo '  "files": [' >> payload.json
+        
+        # 파일 수집 및 JSON 생성
+        first=true
+        find . -name "*.mdc" -o -name "*.md" | while read file; do
+          # 숨김 파일 제외 (.github 등)
+          if [[ "$file" == */.* ]]; then
+            continue
+          fi
+          
+          # 첫 번째 파일이 아니면 콤마 추가
+          if [ "$first" = false ]; then
+            echo '    ,' >> payload.json
+          fi
+          first=false
+          
+          # 파일 정보 추출
+          filename=$(basename "$file")
+          filepath=$(echo "$file" | sed 's|^\./||')
+          
+          # 파일 내용 읽기 (JSON 이스케이프)
+          content=$(cat "$file" | jq -Rs .)
+          
+          # 파일 크기
+          size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo 0)
+          
+          # 파일 내에서 태그 추출 (예: <!-- tags: python, django -->)
+          tags=$(grep -o '<!-- tags: [^>]*' "$file" | sed 's/<!-- tags: //' | sed 's/,/","/g' | sed 's/^/"/' | sed 's/$/"/' || echo '""')
+          if [ "$tags" = '""' ]; then
+            tags='[]'
+          else
+            tags='['$tags']'
+          fi
+          
+          # 파일별 분류를 위한 디렉토리 경로
+          dir_path=$(dirname "$filepath")
+          if [ "$dir_path" = "." ]; then
+            dir_path="root"
+          fi
+          
+          # JSON 엔트리 생성
+          echo '    {' >> payload.json
+          echo '      "name": "'$filename'",' >> payload.json
+          echo '      "path": "'$filepath'",' >> payload.json
+          echo '      "directory": "'$dir_path'",' >> payload.json
+          echo '      "content": '$content',' >> payload.json
+          echo '      "size": '$size',' >> payload.json
+          echo '      "tags": '$tags >> payload.json
+          echo '    }' >> payload.json
+        done
+        
+        # JSON 구조 종료
+        echo '  ]' >> payload.json
+        echo '}' >> payload.json
+        
+        # 생성된 payload 확인
+        echo "📄 Generated payload:"
+        cat payload.json | jq .
+        
+        # 알림을 받을 리포지토리 목록 (환경변수에서 가져오기)
+        IFS=' ' read -ra REPOS <<< "${{ env.TARGET_REPOS }}"
+        
+        echo "📤 Sending notifications to repositories..."
+        echo "Target repositories: ${REPOS[@]}"
         
         for repo in "${REPOS[@]}"; do
-          echo "Notifying $repo..."
+          echo "→ Notifying $repo..."
           
+          # payload를 client_payload로 전송
           curl -X POST \
-            -H "Authorization: token ${{ secrets.DISPATCH_TOKEN }}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
             "https://api.github.com/repos/$repo/dispatches" \
             -d '{
               "event_type": "cursor-rules-updated",
-              "client_payload": {
-                "source_repo": "${{ github.repository }}",
-                "source_commit": "${{ github.sha }}",
-                "source_ref": "${{ github.ref }}",
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-              }
-            }'
+              "client_payload": '$(cat payload.json)'
+            }' \
+            -w "HTTP Status: %{http_code}\n"
           
           if [ $? -eq 0 ]; then
-            echo "✅ Successfully notified $repo"
+            echo "  ✅ Successfully notified $repo"
           else
-            echo "❌ Failed to notify $repo"
+            echo "  ❌ Failed to notify $repo"
           fi
         done
+        
+        echo "🚀 Notification process completed!"
