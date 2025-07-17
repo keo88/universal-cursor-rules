@@ -1,3 +1,6 @@
+# CRepo/.github/workflows/notify-cursor-rules-update.yml
+# 이 워크플로우는 CRepo 리포지토리에 추가해야 합니다.
+
 name: Notify Cursor Rules Update
 
 on:
@@ -8,6 +11,9 @@ on:
 env:
   # 알림을 받을 타겟 리포지토리 목록 (공백으로 구분)
   TARGET_REPOS: 'keo88/springboot-study'
+  
+  # repository_dispatch 권한을 가진 토큰 (필요시 별도 설정)
+  # CURSOR_DISPATCH_TOKEN: Personal Access Token with repo scope
 
 jobs:
   notify-repos:
@@ -98,16 +104,20 @@ jobs:
           echo "→ Notifying $repo..."
           
           # payload를 client_payload로 전송
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          response=$(curl -s -X POST \
+            -H "Authorization: token ${{ secrets.CURSOR_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Content-Type: application/json" \
             "https://api.github.com/repos/$repo/dispatches" \
-            -d '{
-              "event_type": "cursor-rules-updated",
-              "client_payload": '$(cat payload.json)'
-            }' \
-            -w "HTTP Status: %{http_code}\n"
+            -d @- <<EOF
+{
+  "event_type": "cursor-rules-updated",
+  "client_payload": $(cat payload.json)
+}
+EOF
+)
+          
+          echo "Response: $response"
           
           if [ $? -eq 0 ]; then
             echo "  ✅ Successfully notified $repo"
