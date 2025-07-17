@@ -1,0 +1,45 @@
+name: Notify Cursor Rules Update
+
+on:
+  push:
+    branches: [main]
+  
+  workflow_dispatch:
+
+jobs:
+  notify-repos:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Notify target repositories
+      run: |
+        # 알림을 받을 리포지토리 목록
+        REPOS=(
+          "your-org/project1"
+          "your-org/project2"
+          "your-org/project3"
+        )
+        
+        for repo in "${REPOS[@]}"; do
+          echo "Notifying $repo..."
+          
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$repo/dispatches" \
+            -d '{
+              "event_type": "cursor-rules-updated",
+              "client_payload": {
+                "source_repo": "${{ github.repository }}",
+                "source_commit": "${{ github.sha }}",
+                "source_ref": "${{ github.ref }}",
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+              }
+            }'
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully notified $repo"
+          else
+            echo "❌ Failed to notify $repo"
+          fi
+        done
