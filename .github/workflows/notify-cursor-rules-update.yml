@@ -28,9 +28,7 @@ jobs:
         echo '{' > payload.json
         echo '  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",' >> payload.json
         echo '  "commit": {' >> payload.json
-        echo '    "sha": "'${{ github.sha }}'",' >> payload.json
-        echo '    "message": "'$(echo "${{ github.event.head_commit.message }}" | sed 's/"/\\"/g' | tr '\n' ' ')'",' >> payload.json
-        echo '    "author": "'${{ github.event.head_commit.author.name }}'"' >> payload.json
+        echo '    "sha": "'${{ github.sha }}'"' >> payload.json
         echo '  },' >> payload.json
         echo '  "files": [' >> payload.json
         
